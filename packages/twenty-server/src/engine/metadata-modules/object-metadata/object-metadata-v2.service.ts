@@ -61,6 +61,7 @@ export class ObjectMetadataServiceV2 {
       otherObjectFlatFieldMetadataToUpdate: otherObjectFlatFieldMetadatas,
       flatIndexMetadataToUpdate,
     } = fromUpdateObjectInputToFlatObjectMetadata({
+      // Would not building the from be way more easier for us ? simplifying the DevX for both transpiler and the service
       existingFlatObjectMetadataMaps,
       updateObjectInput,
       flatIndexMaps: existingFlatIndexMaps,
