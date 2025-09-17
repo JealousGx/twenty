@@ -3,6 +3,7 @@ import { Injectable } from '@nestjs/common';
 import { isDefined } from 'twenty-shared/utils';
 
 import { WorkspaceManyOrAllFlatEntityMapsCacheService } from 'src/engine/core-modules/common/services/workspace-many-or-all-flat-entity-maps-cache.service.';
+import { addFlatEntityToFlatEntityMapsOrThrow } from 'src/engine/core-modules/common/utils/add-flat-entity-to-flat-entity-maps-or-throw.util';
 import { addFlatFieldMetadataInFlatObjectMetadataMapsOrThrow } from 'src/engine/metadata-modules/flat-object-metadata-maps/utils/add-flat-field-metadata-in-flat-object-metadata-maps-or-throw.util';
 import { addFlatObjectMetadataToFlatObjectMetadataMapsOrThrow } from 'src/engine/metadata-modules/flat-object-metadata-maps/utils/add-flat-object-metadata-to-flat-object-metadata-maps-or-throw.util';
 import { deleteFieldFromFlatObjectMetadataMapsOrThrow } from 'src/engine/metadata-modules/flat-object-metadata-maps/utils/delete-field-from-flat-object-metadata-maps-or-throw.util';
@@ -228,23 +229,29 @@ export class ObjectMetadataServiceV2 {
     createObjectInput: Omit<CreateObjectInput, 'workspaceId'>;
     workspaceId: string;
   }): Promise<FlatObjectMetadata> {
-    const { flatObjectMetadataMaps: existingFlatObjectMetadataMaps } =
+    const {
+      flatObjectMetadataMaps: existingFlatObjectMetadataMaps,
+      flatIndexMaps: existingFlatIndexMaps,
+    } =
       await this.flatEntityMapsCacheService.getOrRecomputeManyOrAllFlatEntityMaps(
         {
           workspaceId,
-          flatEntities: ['flatObjectMetadataMaps'],
+          flatEntities: ['flatObjectMetadataMaps', 'flatIndexMaps'],
         },
       );
 
-    const { flatObjectMetadataToCreate, relationTargetFlatFieldMetadatas } =
-      fromCreateObjectInputToFlatObjectMetadataAndFlatFieldMetadatasToCreate({
-        createObjectInput,
-        workspaceId,
-        existingFlatObjectMetadataMaps,
-      });
+    const {
+      flatObjectMetadataToCreate,
+      relationTargetFlatFieldMetadataToCreate,
+      flatIndexMetadataToCreate,
+    } = fromCreateObjectInputToFlatObjectMetadataAndFlatFieldMetadatasToCreate({
+      createObjectInput,
+      workspaceId,
+      existingFlatObjectMetadataMaps,
+    });
 
     const existingFlatObjectMetadataMapsWithTargetRelationFlatFieldMetadatas =
-      relationTargetFlatFieldMetadatas.reduce(
+      relationTargetFlatFieldMetadataToCreate.reduce(
         (flatObjectMetadataMaps, flatFieldMetadata) =>
           addFlatFieldMetadataInFlatObjectMetadataMapsOrThrow({
             flatFieldMetadata,
@@ -255,7 +262,7 @@ export class ObjectMetadataServiceV2 {
 
     const flatObjectMetadataMapsWithTargetRelationFlatFieldMetadatas =
       getSubFlatObjectMetadataMapsOutOfFlatFieldMetadatasOrThrow({
-        flatFieldMetadatas: relationTargetFlatFieldMetadatas,
+        flatFieldMetadatas: relationTargetFlatFieldMetadataToCreate,
         flatObjectMetadataMaps:
           existingFlatObjectMetadataMapsWithTargetRelationFlatFieldMetadatas,
       });
@@ -269,7 +276,7 @@ export class ObjectMetadataServiceV2 {
 
     const impactedObjectMetadataIds = [
       ...new Set(
-        relationTargetFlatFieldMetadatas.map(
+        relationTargetFlatFieldMetadataToCreate.map(
           ({ objectMetadataId }) => objectMetadataId,
         ),
       ),
@@ -286,6 +293,15 @@ export class ObjectMetadataServiceV2 {
       ],
     });
 
+    const toFlatIndexMaps = flatIndexMetadataToCreate.reduce(
+      (flatIndexMaps, flatIndexMetadata) =>
+        addFlatEntityToFlatEntityMapsOrThrow({
+          flatEntity: flatIndexMetadata,
+          flatEntityMaps: flatIndexMaps,
+        }),
+      existingFlatIndexMaps,
+    );
+
     const validateAndBuildResult =
       await this.workspaceMigrationValidateBuildAndRunService.validateBuildAndRunWorkspaceMigration(
         {
@@ -293,6 +309,10 @@ export class ObjectMetadataServiceV2 {
             flatObjectMetadataMaps: {
               from: fromFlatObjectMetadataMaps,
               to: toFlatObjectMetadataMaps,
+            },
+            flatIndexMaps: {
+              from: existingFlatIndexMaps,
+              to: toFlatIndexMaps,
             },
           },
           buildOptions: {
