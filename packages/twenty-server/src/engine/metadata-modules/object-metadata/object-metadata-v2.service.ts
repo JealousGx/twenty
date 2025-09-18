@@ -4,6 +4,7 @@ import { isDefined } from 'twenty-shared/utils';
 
 import { WorkspaceManyOrAllFlatEntityMapsCacheService } from 'src/engine/core-modules/common/services/workspace-many-or-all-flat-entity-maps-cache.service.';
 import { addFlatEntityToFlatEntityMapsOrThrow } from 'src/engine/core-modules/common/utils/add-flat-entity-to-flat-entity-maps-or-throw.util';
+import { deleteFlatEntityFromFlatEntityMapsOrThrow } from 'src/engine/core-modules/common/utils/delete-flat-entity-from-flat-entity-maps-or-throw.util';
 import { replaceFlatEntityInFlatEntityMapsOrThrow } from 'src/engine/core-modules/common/utils/replace-flat-entity-in-flat-entity-maps-or-throw.util';
 import { addFlatFieldMetadataInFlatObjectMetadataMapsOrThrow } from 'src/engine/metadata-modules/flat-object-metadata-maps/utils/add-flat-field-metadata-in-flat-object-metadata-maps-or-throw.util';
 import { addFlatObjectMetadataToFlatObjectMetadataMapsOrThrow } from 'src/engine/metadata-modules/flat-object-metadata-maps/utils/add-flat-object-metadata-to-flat-object-metadata-maps-or-throw.util';
@@ -166,19 +167,26 @@ export class ObjectMetadataServiceV2 {
     deleteObjectInput: DeleteOneObjectInput;
     workspaceId: string;
   }): Promise<ObjectMetadataDTO> {
-    const { flatObjectMetadataMaps: existingFlatObjectMetadataMaps } =
+    const {
+      flatObjectMetadataMaps: existingFlatObjectMetadataMaps,
+      flatIndexMaps: existingFlatIndexMaps,
+    } =
       await this.flatEntityMapsCacheService.getOrRecomputeManyOrAllFlatEntityMaps(
         {
           workspaceId,
-          flatEntities: ['flatObjectMetadataMaps'],
+          flatEntities: ['flatObjectMetadataMaps', 'flatIndexMaps'],
         },
       );
 
-    const { flatFieldMetadatasToDelete, flatObjectMetadataToDelete } =
-      fromDeleteObjectInputToFlatFieldMetadatasToDelete({
-        deleteObjectInput,
-        existingFlatObjectMetadataMaps,
-      });
+    const {
+      flatFieldMetadatasToDelete,
+      flatObjectMetadataToDelete,
+      flatIndexToDelete,
+    } = fromDeleteObjectInputToFlatFieldMetadatasToDelete({
+      existingFlatIndexMaps,
+      deleteObjectInput,
+      existingFlatObjectMetadataMaps,
+    });
     const { id: objectMetadataToDeleteId } = flatObjectMetadataToDelete;
 
     const impactedObjectMetadataIds = Array.from(
@@ -213,6 +221,15 @@ export class ObjectMetadataServiceV2 {
         }),
       );
 
+    const toFlatIndexMaps = flatIndexToDelete.reduce(
+      (flatIndexMaps, flatIndex) =>
+        deleteFlatEntityFromFlatEntityMapsOrThrow({
+          entityToDeleteId: flatIndex.id,
+          flatEntityMaps: flatIndexMaps,
+        }),
+      existingFlatIndexMaps,
+    );
+
     const validateAndBuildResult =
       await this.workspaceMigrationValidateBuildAndRunService.validateBuildAndRunWorkspaceMigration(
         {
@@ -220,6 +237,10 @@ export class ObjectMetadataServiceV2 {
             flatObjectMetadataMaps: {
               from: fromFlatObjectMetadataMaps,
               to: toFlatObjectMetadataMaps,
+            },
+            flatIndexMaps: {
+              from: existingFlatIndexMaps,
+              to: toFlatIndexMaps,
             },
           },
           buildOptions: {
